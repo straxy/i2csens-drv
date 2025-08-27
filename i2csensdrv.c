@@ -31,14 +31,14 @@
 
 #define CTRL_EN_MASK				0x1
 
+#define I2CSENS_ID				0x5Au
+
 /**
  * struct i2csens - i2csens device private data structure
  * regmap - register map of the I2C peripheral
- * i2c_client - I2C client, contains device
  */
 struct i2csens {
 	struct regmap *regmap;
-	struct i2c_client *i2c_client;
 };
 
 /* SYSFS attributes */
@@ -137,18 +137,19 @@ static const struct regmap_config i2csens_regmap_config = {
 
 /**
  * Driver probe function.
- * Configure interrupt and set up driver.
+ * Configure I2C client structure and set up driver.
  */
 static int i2csens_probe(struct i2c_client *client)
 {
-  struct i2csens *data;
+	struct i2csens *data;
+	unsigned int regval;
 	int status;
 
 	data = devm_kzalloc(&client->dev, sizeof(*data), GFP_KERNEL);
 	if (!data)
 		return -ENOMEM;
 
-	data->i2c_client = client;
+	i2c_set_clientdata(client, data);
 
 	data->regmap = devm_regmap_init_i2c(client, &i2csens_regmap_config);
 	if (IS_ERR(data->regmap)) {
@@ -156,7 +157,16 @@ static int i2csens_probe(struct i2c_client *client)
 		return PTR_ERR(data->regmap);
 	}
 
-	i2c_set_clientdata(client, data);
+	status = regmap_read(data->regmap, I2CSENS_REG_ID, &regval);
+	if (status < 0) {
+		dev_err(&client->dev, "error reading ID register\n");
+		return status;
+	}
+
+	if (regval != I2CSENS_ID) {
+		dev_err(&client->dev, "unexpected ID\n");
+		return -ENODEV;
+	}
 
 	status = sysfs_create_group(&client->dev.kobj, &i2csens_group);
 	if (status) {
